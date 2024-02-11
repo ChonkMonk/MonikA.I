@@ -186,6 +186,7 @@ def send_answer(received_msg, msg):
             girlfriend. Now he says: {received_msg}. What is the label of this sentence?"
         action_to_take = action_classifier(sequence_to_classify, ALL_ACTIONS)
         action_to_take = action_to_take["labels"][0]
+        print(action_to_take)
         print("Action: " + action_to_take)
         action_to_take = REVERT_ACTION_DICT[action_to_take]
     else:
@@ -193,6 +194,9 @@ def send_answer(received_msg, msg):
     action_to_take = action_to_take.encode("utf-8")
     emotion = "".encode("utf-8")
     msg = msg.encode("utf-8")
+    """
+    /g is used as a general separator between different elements in the message to send
+    """
     msg_to_send = msg + b"/g" + emotion + b"/g" + action_to_take
     sendMessage(msg_to_send)
 
@@ -213,12 +217,39 @@ def listenToClient(client):
         rest_msg = received_msg[1]
         received_msg = received_msg[0]
         if received_msg == "chatbot":
+            if not launched:
+                pw = sync_playwright().start()
+                try:
+                    browser = pw.firefox.launch(headless=False)
+                    context = browser.new_context()
+                    page = launch(context)
+                except:
+                    print("Launch failed. Please check if text-generation_webui is running.")
+                    _ = client.recv(BUFSIZE).decode("utf-8")
+                    sendMessage("server_error".encode("utf-8"))
+                    launched = False
+                    pw.stop()
+                    continue
+                launched = True
+                _ = client.recv(BUFSIZE).decode("utf-8")
+                sendMessage("server_ok".encode("utf-8"))
+
             if '/g' in rest_msg:
                 received_msg, step = rest_msg.split("/g")
             else:
                 received_msg = client.recv(BUFSIZE).decode("utf-8")  # Message containing the user input
                 received_msg, step = received_msg.split("/g")
             step = int(step)
+            
+            try:
+                post_message(page, received_msg)
+            except:
+                print("Error while sending message. Please check if text-generation_webui is running or if the model is loaded.")
+                _ = client.recv(BUFSIZE).decode("utf-8")
+                sendMessage("server_error".encode("utf-8"))
+                launched = False
+                pw.stop()
+                continue
             if received_msg == "begin_record":
                 if USE_SPEECH_RECOGNITION:
                     with sr.Microphone(sample_rate=16000) as source:
@@ -240,31 +271,6 @@ def listenToClient(client):
                     continue
             print("User: "+received_msg)
 
-            if not launched:
-                pw = sync_playwright().start()
-                try:
-                    browser = pw.firefox.launch(headless=False)
-                    context = browser.new_context()
-                    page = launch(context)
-                except:
-                    print("Launch failed. Please check if text-generation_webui is running.")
-                    _ = client.recv(BUFSIZE).decode("utf-8")
-                    sendMessage("server_error".encode("utf-8"))
-                    launched = False
-                    pw.stop()
-                    continue
-                launched = True
-                _ = client.recv(BUFSIZE).decode("utf-8")
-                sendMessage("server_ok".encode("utf-8"))
-            try:
-                post_message(page, received_msg)
-            except:
-                print("Error while sending message. Please check if text-generation_webui is running or if the model is loaded.")
-                _ = client.recv(BUFSIZE).decode("utf-8")
-                sendMessage("server_error".encode("utf-8"))
-                launched = False
-                pw.stop()
-                continue
             while True:
                 stop_button = page.locator('[class="lg secondary svelte-cmf5ev hidden"]')
                 stop_button_style = stop_button.get_attribute("style")
